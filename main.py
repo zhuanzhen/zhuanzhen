@@ -18,12 +18,9 @@ batch_size = 8
 accumulation_steps = 8
 lr = 2e-3
 
-epochs = 2  # 10
-# lr = 1e-3 batchsize = 4 accuracy = 0.68999 epoch = 2
-# lr = 1e-3 batchsize = 8 accuracy = 0.68999 epoch = 2
-# lr = 1.5e-3 batchsize = 8 accuracy = 0.68999 epoch = 2
+epochs = 3  # 10
 # lr = 2e-3 batchsize = 8 accuracy = 0.68999 epoch = 2
-device = torch.device(f'cuda:{1}' if torch.cuda.is_available() else 'cpu')
+device = torch.device(f'cuda:{2}' if torch.cuda.is_available() else 'cpu')
 print("device:", device)
 def train_entry():
     # 加载数据
@@ -43,8 +40,9 @@ def train_entry():
     print("model device:", model.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     train(model, optimizer, train_loader)
-    torch.load('/data/fangmiaoTEST/zaz/bert/bert.pt')
+    # torch.load('/data/fangmiaoTEST/zaz/bert/bert.pt')
     test(model, test_loader)
+    torch.save(model.state_dict(), '/data/fangmiaoTEST/zaz/bert/bert.pt')
 
 
 def train(model, optimizer, data_loader):
@@ -56,30 +54,25 @@ def train(model, optimizer, data_loader):
     :return:
     """
     min_loss = float('inf')
+    model.train()
     for e in range(epochs):
+        model.zero_grad()
         for step, batch in enumerate(data_loader):
-            model.zero_grad()
-            model.train()
-
             inputs = {'input_ids':batch[0],
                       'attention_mask':batch[1],
                       'token_type_ids':batch[2],
-                      'labels':batch[3]
-            }
+                      'labels':batch[3]}
             inputs['input_ids'] = inputs['input_ids'].to(device)
             inputs['labels'] = inputs['labels'].to(device)
             inputs['attention_mask'] = inputs['attention_mask'].to(device)
             inputs['token_type_ids'] = inputs['token_type_ids'].to(device)
             output = model(input_ids = inputs['input_ids'], labels = inputs['labels'])
-
             train_loss = output[0]
-            train_loss = train_loss / accumulation_steps
+            # train_loss.backward(retain_graph=True)
             train_loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
-            # 每八次更新一下网络中的参数
-            if (step+1) % accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
 
             if (step+1) % accumulation_steps == 1:
                 print('Train Epoch: {} [{}/{}]  ||  train_loss: {:.6f}'.format(
@@ -87,9 +80,9 @@ def train(model, optimizer, data_loader):
                 ))
 
         print('Train Epoch: {} || train_loss:{:.6f}.'.format(e+1, train_loss.item()))
-        if train_loss < min_loss:
-            min_loss = train_loss
-            torch.save(model.state_dict(), '/data/fangmiaoTEST/zaz/bert/bert.pt')
+        # if train_loss < min_loss:
+        #     min_loss = train_loss
+        #     torch.save(model.state_dict(), '/data/fangmiaoTEST/zaz/bert/bert.pt')
 
 
 def test(model, test_loader):
