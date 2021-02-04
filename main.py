@@ -38,7 +38,7 @@ def train_entry():
     print("model device:", model.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     train(model, optimizer, train_loader, test_loader)
-    torch.load(ckpt_path)
+    model.load_state_dict(torch.load(ckpt_path))
     test(model, test_loader)
 
 
@@ -67,7 +67,7 @@ def train(model, optimizer, data_loader, test_loader):
             train_acc.append(torch.mean((y == torch.argmax(outputs.logits, dim=-1)).float()).cpu().item())
             train_loss.append(outputs.loss.cpu().item())
 
-            if (step + 1) % log_steps == 1:
+            if (step + 1) % log_steps == 0:
                 print('Train Epoch: {} [{}/{}]  ||  train_loss: {:.6f} || train_acc: {:.6f}'.format(
                     e + 1, step * batch_size, len(data_loader.dataset), np.mean(train_loss[-log_steps:]),
                     np.mean(train_acc[-log_steps:])
