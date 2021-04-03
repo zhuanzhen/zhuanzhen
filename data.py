@@ -17,7 +17,6 @@ def read_json(input_file):
 
         return lines
 
-
 class BertClfDataset(Dataset):
     """
     用于BERT文本分类的数据集，该处定义其数据结构
