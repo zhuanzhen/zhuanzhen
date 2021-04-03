@@ -3,23 +3,24 @@ import os
 import numpy as np
 from data import get_loader
 from transformers import BertForSequenceClassification, BertConfig
+from sklearn import metrics
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 # 定义配置项
 cache_dir = './data'
-ckpt_path = './data/bert.pt'
+ckpt_path = './data/ssbertA.pt'
 model_name = 'bert-base-chinese'
-train_dir = "./data/train.json"
-test_dir = "./data/test.json"
-dev_dir = "./data/dev.json"
-valid_dir = "./data/dev.json"
-batch_size = 32
+train_dir = "./sohu2021_open_data_clean/短短匹配A类/train.txt"
+test_dir = "./sohu2021_open_data_clean/短短匹配A类/test_with_id.txt.txt"
+dev_dir = "./sohu2021_open_data_clean/短短匹配A类/valid.txt"
+valid_dir = "./sohu2021_open_data_clean/短短匹配A类/valid.txt"
+batch_size = 16
 log_steps = 50
 lr = 1e-5
 
-epochs = 10  # 10
-# lr = 2e-3 batchsize = 8 accuracy = 0.68999 epoch = 2
-device = torch.device(f'cuda:{1}' if torch.cuda.is_available() else 'cpu')
+epochs = 3  # 10
+
+device = torch.device(f'cuda:{2}' if torch.cuda.is_available() else 'cpu')
 print("device:", device)
 
 
@@ -31,7 +32,7 @@ def train_entry():
     test_loader = get_loader(dev_dir, batch_size=8, shuffle=False)
 
     # 加载模型及配置方法                                              15
-    bert_config = BertConfig.from_pretrained(model_name, num_labels=2)  # 头条文本分类数据集为15类
+    bert_config = BertConfig.from_pretrained(model_name, num_labels=2)
     model = BertForSequenceClassification.from_pretrained(pretrained_model_name_or_path=model_name,
                                                           config=bert_config)
     model.to(device)
@@ -66,14 +67,15 @@ def train(model, optimizer, data_loader, test_loader):
 
             train_acc.append(torch.mean((y == torch.argmax(outputs.logits, dim=-1)).float()).cpu().item())
             train_loss.append(outputs.loss.cpu().item())
+            recall = metrics.recall_score(y.cpu().detach().numpy() , torch.argmax(outputs.logits, dim=-1).cpu().detach().numpy() , average='macro')
 
             if (step + 1) % log_steps == 0:
-                print('Train Epoch: {} [{}/{}]  ||  train_loss: {:.6f} || train_acc: {:.6f}'.format(
+                print('Train Epoch: {} [{}/{}]  ||  train_loss: {:.6f} || train_acc: {:.6f} || recall: {:.6f}'.format(
                     e + 1, step * batch_size, len(data_loader.dataset), np.mean(train_loss[-log_steps:]),
-                    np.mean(train_acc[-log_steps:])
+                    np.mean(train_acc[-log_steps:]), recall
                 ))
 
-        print('Train Epoch: {} || train_loss: {:.6f} || train_acc: {:.6f}'.format(e + 1, np.mean(train_loss),
+        print('Train Epoch: {} || train_loss: {:.6f} || train_acc: {:.6f} '.format(e + 1, np.mean(train_loss),
                                                                                   np.mean(train_acc)))
 
         test_acc = test(model, test_loader)
