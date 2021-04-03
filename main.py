@@ -67,6 +67,7 @@ def train(model, optimizer, data_loader, test_loader):
 
             train_acc.append(torch.mean((y == torch.argmax(outputs.logits, dim=-1)).float()).cpu().item())
             train_loss.append(outputs.loss.cpu().item())
+            # recall
             recall = metrics.recall_score(y.cpu().detach().numpy() , torch.argmax(outputs.logits, dim=-1).cpu().detach().numpy() , average='macro')
 
             if (step + 1) % log_steps == 0:
