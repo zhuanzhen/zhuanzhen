@@ -1,78 +1,112 @@
 import torch
 import os
-from torch.utils.data import Dataset, DataLoader
-import json
-from transformers import BertTokenizer
+import numpy as np
+from data import get_loader
+from transformers import BertForSequenceClassification, BertConfig
+from sklearn import metrics
 
-tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# 定义配置项
+cache_dir = './data'
+ckpt_path = './data/ssbertA.pt'
+model_name = 'bert-base-chinese'
+train_dir = "./sohu2021_open_data_clean/短短匹配A类/train.txt"
+test_dir = "./sohu2021_open_data_clean/短短匹配A类/test_with_id.txt.txt"
+dev_dir = "./sohu2021_open_data_clean/短短匹配A类/valid.txt"
+valid_dir = "./sohu2021_open_data_clean/短短匹配A类/valid.txt"
+batch_size = 16
+log_steps = 50
+lr = 1e-5
+
+epochs = 3  # 10
+
+device = torch.device(f'cuda:{2}' if torch.cuda.is_available() else 'cpu')
+print("device:", device)
 
 
-#  读取json文件
-def read_json(input_file):
-    with open(input_file, 'r', encoding='UTF-8') as f:
-        reader = f.readlines()
-        lines = []
-        for line in reader:
-            lines.append(json.loads(line.strip()))
-        return lines
+def train_entry():
+    # 加载数据
+    train_loader = get_loader(train_dir, batch_size=batch_size, shuffle=True)
+    # dev_loader = get_loader(valid_data,batch_size=batch_size, shuffle=False)
+    # 测试集无需打乱顺序
+    test_loader = get_loader(dev_dir, batch_size=8, shuffle=False)
+
+    # 加载模型及配置方法                                              15
+    bert_config = BertConfig.from_pretrained(model_name, num_labels=2)
+    model = BertForSequenceClassification.from_pretrained(pretrained_model_name_or_path=model_name,
+                                                          config=bert_config)
+    model.to(device)
+    print("model device:", model.device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    train(model, optimizer, train_loader, test_loader)
+    model.load_state_dict(torch.load(ckpt_path))
+    test(model, test_loader)
 
 
-class BertClfDataset(Dataset):
+def train(model, optimizer, data_loader, test_loader):
     """
-    用于BERT文本分类的数据集，该处定义其数据结构
-    """
-
-    def __init__(self, fp):
-        """
-        bert的输入需要以下三种数据，labels为文本类别用于训练及评测。
-        :param data:
-        """
-        data = read_json(fp)
-        self.text_a = [line['sentence1'] for line in data]
-        self.text_b = [line['sentence2'] for line in data]
-        self.labels = [int(line['label']) for line in data]
-
-    def __len__(self):
-        """
-        数据集总大小
-        :return:
-        """
-        return len(self.labels)
-
-    def __getitem__(self, index):
-        """
-        从数据集中获取单条数据
-        :param index: 索引
-        :return:
-        """
-        return self.text_a[index], self.text_b[index], self.labels[index]
-
-
-def get_loader(data, batch_size=4, shuffle=False):
-    """
-    定义数据加载器，可批量加载并简单处理数据
-    :param data:
-    :param batch_size:
-    :param shuffle: 是否打乱顺序
+    训练，请自行实现
+    :param model:
+    :param optimizer:
+    :param data_loader:
     :return:
     """
+    best_acc = 0.0
+    for e in range(epochs):
+        train_acc = [0.0]
+        train_loss = [0.0]
+        model.train()
+        for step, batch in enumerate(data_loader):
+            optimizer.zero_grad()
+            x, y = batch
+            x.to(device)
+            y = y.to(device)
+            outputs = model(**x, labels=y, return_dict=True)
+            outputs.loss.backward()
+            optimizer.step()
 
-    dataset = BertClfDataset(data)
-    # print(dataset.__len__())
-    # for i in range(dataset.__len__()):
-    #     print(dataset.__getitem__(i))
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=_collate_fn,num_workers=4)
-    return loader
+            train_acc.append(torch.mean((y == torch.argmax(outputs.logits, dim=-1)).float()).cpu().item())
+            train_loss.append(outputs.loss.cpu().item())
+            recall = metrics.recall_score(y.cpu().detach().numpy() , torch.argmax(outputs.logits, dim=-1).cpu().detach().numpy() , average='macro')
+
+            if (step + 1) % log_steps == 0:
+                print('Train Epoch: {} [{}/{}]  ||  train_loss: {:.6f} || train_acc: {:.6f} || recall: {:.6f}'.format(
+                    e + 1, step * batch_size, len(data_loader.dataset), np.mean(train_loss[-log_steps:]),
+                    np.mean(train_acc[-log_steps:]), recall
+                ))
+
+        print('Train Epoch: {} || train_loss: {:.6f} || train_acc: {:.6f} '.format(e + 1, np.mean(train_loss),
+                                                                                  np.mean(train_acc)))
+
+        test_acc = test(model, test_loader)
+        if test_acc > best_acc:
+            best_acc = test_acc
+            torch.save(model.state_dict(), ckpt_path)
+            print('model saved.')
 
 
-def _collate_fn(data):
+def test(model, test_loader):
     """
-    在输入模型前的最后一道数据处理
-    :param data:
+    测试，请自行实现
+    :param model:
+    :param test_loader:
     :return:
     """
-    text_a, text_b, labels = zip(*data)
-    inputs = tokenizer(text_a, text_b, padding=True, return_tensors='pt')
-    labels = torch.tensor(labels, dtype=torch.long)
+    accuracy = 0.0
+    loss = 0.0
+    model.eval()
+    with torch.no_grad():
+        for step, batch in enumerate(test_loader):
+            x, y = batch
+            x.to(device)
+            y = y.to(device)
+            outputs = model(**x, labels=y, return_dict=True)
+            accuracy += torch.sum(y == torch.argmax(outputs.logits, dim=-1)).cpu().item()
+            loss += outputs.loss.cpu().item()
+        print(f'valid loss: {loss / len(test_loader)}')
+        print(f'valid acc: {accuracy / test_loader.dataset.__len__()}')
+    return accuracy
 
-    return inputs, labels
+
+if __name__ == '__main__':
+    train_entry()
